@@ -1,0 +1,175 @@
+{
+  "_instructions": [
+    "Map your columns to the expected ML pipeline columns below.",
+    "Use 'table.column' format to specify columns from any table.",
+    "The system will automatically figure out how to JOIN the tables.",
+    "delivery_time_minutes is CALCULATED from (delivered_at - created_at), don't map it."
+  ],
+  "column_mapping": {
+    "order_id": {
+      "maps_to": "orders.order_id",
+      "description": "Unique order identifier"
+    },
+    "customer_id": {
+      "maps_to": "orders.customer_id",
+      "description": "Customer identifier"
+    },
+    "store_id": {
+      "maps_to": "stores.store_id",
+      "description": "Restaurant/store identifier"
+    },
+    "created_at": {
+      "maps_to": "orders.created_at",
+      "description": "When order was placed (datetime)"
+    },
+    "delivered_at": {
+      "maps_to": "orders.delivered_at",
+      "description": "When order was delivered (datetime, nullable)"
+    },
+    "latitude": {
+      "maps_to": "stores.latitude",
+      "description": "Pickup location latitude"
+    },
+    "longitude": {
+      "maps_to": "stores.longitude",
+      "description": "Pickup location longitude"
+    },
+    "delivery_latitude": {
+      "maps_to": "orders.delivery_latitude",
+      "description": "Dropoff location latitude"
+    },
+    "delivery_longitude": {
+      "maps_to": "orders.deliverY_longitude",
+      "description": "Dropoff location longitude"
+    },
+    "total": {
+      "maps_to": "orders.total",
+      "description": "Order value in dollars.cents"
+    },
+    "quantity": {
+      "maps_to": "order_items.quantity",
+      "description": "Number of items"
+    }
+  },
+  "available_columns": {
+    "bundle_stops": [
+      "id",
+      "bundle_id",
+      "order_id",
+      "stop_sequence"
+    ],
+    "bundles": [
+      "bundle_id",
+      "driver_id",
+      "order_count",
+      "total_value",
+      "total_distance_km",
+      "estimated_duration_min",
+      "created_at"
+    ],
+    "customers": [
+      "customer_id",
+      "first_name",
+      "last_name",
+      "email",
+      "phone",
+      "address",
+      "city",
+      "state",
+      "zip_code",
+      "latitude",
+      "longitude",
+      "created_at",
+      "is_premium"
+    ],
+    "drivers": [
+      "driver_id",
+      "first_name",
+      "last_name",
+      "email",
+      "phone",
+      "vehicle_type",
+      "license_plate",
+      "rating",
+      "total_deliveries",
+      "home_latitude",
+      "home_longitude",
+      "is_active",
+      "created_at"
+    ],
+    "order_items": [
+      "order_item_id",
+      "order_id",
+      "store_product_id",
+      "parent_product_id",
+      "quantity",
+      "unit_price",
+      "total_price"
+    ],
+    "orders": [
+      "order_id",
+      "customer_id",
+      "store_id",
+      "status",
+      "subtotal",
+      "tax",
+      "delivery_fee",
+      "tip",
+      "total",
+      "created_at",
+      "confirmed_at",
+      "picked_at",
+      "delivered_at",
+      "delivery_latitude",
+      "delivery_longitude",
+      "delivery_notes"
+    ],
+    "parent_products": [
+      "parent_product_id",
+      "name",
+      "category",
+      "brand",
+      "base_price",
+      "unit",
+      "weight_oz",
+      "is_organic"
+    ],
+    "products": [
+      "product_id",
+      "name",
+      "category",
+      "brand",
+      "price",
+      "unit",
+      "weight_oz",
+      "is_organic",
+      "is_available"
+    ],
+    "sqlite_sequence": [
+      "name",
+      "seq"
+    ],
+    "store_products": [
+      "store_product_id",
+      "store_id",
+      "parent_product_id",
+      "price",
+      "is_available",
+      "stock_level"
+    ],
+    "stores": [
+      "store_id",
+      "name",
+      "address",
+      "city",
+      "state",
+      "zip_code",
+      "latitude",
+      "longitude",
+      "opens_at",
+      "closes_at",
+      "is_active",
+      "created_at"
+    ]
+  }
+}

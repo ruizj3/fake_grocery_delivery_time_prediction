@@ -1,0 +1,108 @@
+```
+┌──────────────────────────────────────────────────────────────────────────────┐
+│                   DELIVERY TIME PREDICTION ML PIPELINE                       │
+│                                                                              │
+│  ┌────────────────────────────────────────────────────────────────────────┐ │
+│  │                         DATA SOURCES                                    │ │
+│  │                                                                         │ │
+│  │   ┌──────────────────────────────────────────────────────────────┐    │ │
+│  │   │                    grocery_delivery.db                        │    │ │
+│  │   │                                                               │    │ │
+│  │   │  ┌─────────────┐   ┌──────────────────┐   ┌────────────┐   │    │ │
+│  │   │  │   orders    │   │  ml_predictions   │   │  ml_*      │   │    │ │
+│  │   │  │             │   │                   │   │  features  │   │    │ │
+│  │   │  │ • order_id  │   │ • prediction_id   │   │            │   │    │ │
+│  │   │  │ • customer  │   │ • order_id        │   │ • store_id │   │    │ │
+│  │   │  │ • store_id  │   │ • predicted_mins  │   │ • metrics  │   │    │ │
+│  │   │  │ • created   │   │ • model_version   │   │ • stats    │   │    │ │
+│  │   │  │ • delivered │   │ • features_json   │   │            │   │    │ │
+│  │   │  │ • location  │   │ • timestamp       │   │            │   │    │ │
+│  │   │  └─────────────┘   └──────────────────┘   └────────────┘   │    │ │
+│  │   │                                                               │    │ │
+│  │   └──────────────────────────────────────────────────────────────┘    │ │
+│  └────────────────────────────────────────────────────────────────────────┘ │
+│                                    │                                        │
+│                                    │                                        │
+│  ┌────────────────────────────────▼────────────────────────────────┐       │
+│  │                    FEATURE ENGINEERING                           │       │
+│  │                                                                  │       │
+│  │   ┌──────────────────┐         ┌──────────────────────────┐    │       │
+│  │   │  FeatureStore    │         │  FeatureComputer         │    │       │
+│  │   │                  │         │                          │    │       │
+│  │   │ • Offline (SQL)  │◄────────┤ • Distance calc          │    │       │
+│  │   │ • Online (Redis) │         │ • Time features          │    │       │
+│  │   │ • PIT correct    │         │ • Aggregations           │    │       │
+│  │   └──────────────────┘         └──────────────────────────┘    │       │
+│  └──────────────────────────────────────────────────────────────────┘       │
+│                                    │                                        │
+│                         ┌──────────┴──────────┐                            │
+│                         │                     │                            │
+│  ┌─────────────────────▼──────┐   ┌──────────▼──────────────────────────┐ │
+│  │      TRAINING              │   │         INFERENCE                    │ │
+│  │                            │   │                                      │ │
+│  │  ┌──────────────────────┐  │   │  ┌────────────────────────────────┐ │ │
+│  │  │  train.py            │  │   │  │  BATCH PREDICTIONS             │ │ │
+│  │  │                      │  │   │  │                                │ │ │
+│  │  │ • Load data          │  │   │  │  batch_predict.py              │ │ │
+│  │  │ • Engineer features  │  │   │  │                                │ │ │
+│  │  │ • Train XGBoost      │  │   │  │  1. Get confirmed orders       │ │ │
+│  │  │ • Save model         │  │   │  │     WHERE delivered_at IS NULL │ │ │
+│  │  │ • Log to MLflow      │  │   │  │                                │ │ │
+│  │  └──────────────────────┘  │   │  │  2. Get features for each      │ │ │
+│  │            │                │   │  │                                │ │ │
+│  │            ▼                │   │  │  3. Run model.predict()        │ │ │
+│  │  ┌──────────────────────┐  │   │  │                                │ │ │
+│  │  │  Trained Model       │  │   │  │  4. Save to ml_predictions     │ │ │
+│  │  │  (*.pkl)             │  │   │  │                                │ │ │
+│  │  └──────────────────────┘  │   │  └────────────────────────────────┘ │ │
+│  └────────────────────────────┘   │                 │                    │ │
+│                                    │                 │                    │ │
+│                                    │  ┌──────────────▼──────────────────┐ │ │
+│                                    │  │  REAL-TIME API                  │ │ │
+│                                    │  │                                 │ │ │
+│                                    │  │  api.py                         │ │ │
+│                                    │  │                                 │ │ │
+│                                    │  │  POST /predict                  │ │ │
+│                                    │  │  • Load model                   │ │ │
+│                                    │  │  • Get features                 │ │ │
+│                                    │  │  • Return prediction            │ │ │
+│                                    │  │                                 │ │ │
+│                                    │  │  GET /model/info                │ │ │
+│                                    │  │  GET /health                    │ │ │
+│                                    │  └─────────────────────────────────┘ │ │
+│                                    └──────────────────────────────────────┘ │
+│                                                                              │
+│  ┌──────────────────────────────────────────────────────────────────────┐   │
+│  │                        MONITORING & ANALYSIS                          │   │
+│  │                                                                       │   │
+│  │  ┌────────────────────────┐      ┌────────────────────────────┐     │   │
+│  │  │  analyze_predictions   │      │  Drift Detection           │     │   │
+│  │  │                        │      │                            │     │   │
+│  │  │  • MAE, RMSE          │      │  • Feature drift           │     │   │
+│  │  │  • Accuracy bands     │      │  • Target drift            │     │   │
+│  │  │  • Store performance  │      │  • Trigger retraining      │     │   │
+│  │  │  • Error analysis     │      │                            │     │   │
+│  │  └────────────────────────┘      └────────────────────────────┘     │   │
+│  └──────────────────────────────────────────────────────────────────────┘   │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+WORKFLOW:
+=========
+
+1. TRAIN:       python train.py
+                └─► Saves model to models/
+
+2. BATCH PRED:  python batch_predict.py
+                ├─► Reads: orders (WHERE delivered_at IS NULL)
+                └─► Writes: ml_predictions table
+
+3. ANALYZE:     python analyze_predictions.py
+                ├─► Compares: predictions vs actuals
+                └─► Shows: accuracy metrics
+
+4. API:         python -m delivery_ml.serving.api
+                └─► Serves: real-time predictions
+
+5. RETRAIN:     (When accuracy drops or drift detected)
+                └─► Back to step 1
+```
