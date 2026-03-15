@@ -84,7 +84,7 @@ class DriftDetector:
             test_name="ks_test",
             statistic=statistic,
             p_value=p_value,
-            is_drifted=p_value < self.p_value_threshold,
+            is_drifted=bool(p_value < self.p_value_threshold),
             threshold=self.p_value_threshold,
             reference_mean=sum(reference_values) / len(reference_values),
             current_mean=sum(current_values) / len(current_values),
@@ -115,14 +115,42 @@ class DriftDetector:
                 threshold=psi_threshold,
             )
 
+        # Check if this is a boolean feature (only 0s and 1s or True/False)
+        unique_ref = set(reference_values)
+        unique_cur = set(current_values)
+        is_boolean = (unique_ref | unique_cur).issubset({0, 1, True, False})
+        
+        if is_boolean:
+            # For boolean features, use simple proportion comparison
+            ref_mean = sum(reference_values) / len(reference_values)
+            cur_mean = sum(current_values) / len(current_values)
+            psi = abs(cur_mean - ref_mean) * 10  # Scale to match PSI range
+            
+            return DriftResult(
+                feature_name=feature_name,
+                test_name="psi",
+                statistic=psi,
+                p_value=1 - min(psi / psi_threshold, 1.0),
+                is_drifted=bool(psi > psi_threshold),
+                threshold=psi_threshold,
+                reference_mean=ref_mean,
+                current_mean=cur_mean,
+            )
+
         # Create bins from reference distribution
-        min_val = min(min(reference_values), min(current_values))
-        max_val = max(max(reference_values), max(current_values))
+        # Convert to float to handle any remaining edge cases
+        ref_vals = [float(v) for v in reference_values]
+        cur_vals = [float(v) for v in current_values]
+        
+        min_val = min(min(ref_vals), min(cur_vals))
+        max_val = max(max(ref_vals), max(cur_vals))
         bins = [min_val + i * (max_val - min_val) / n_bins for i in range(n_bins + 1)]
 
-        # Calculate proportions
-        ref_counts, _ = pl.Series(reference_values).hist(bins=bins)
-        cur_counts, _ = pl.Series(current_values).hist(bins=bins)
+        # Calculate proportions using numpy histogram
+        import numpy as np
+
+        ref_counts, _ = np.histogram(ref_vals, bins=bins)
+        cur_counts, _ = np.histogram(cur_vals, bins=bins)
 
         # Normalize to proportions
         ref_props = [c / len(reference_values) for c in ref_counts]
@@ -141,7 +169,7 @@ class DriftDetector:
             test_name="psi",
             statistic=psi,
             p_value=1 - min(psi / psi_threshold, 1.0),  # Pseudo p-value
-            is_drifted=psi > psi_threshold,
+            is_drifted=bool(psi > psi_threshold),
             threshold=psi_threshold,
             reference_mean=sum(reference_values) / len(reference_values),
             current_mean=sum(current_values) / len(current_values),
@@ -178,27 +206,30 @@ class DriftDetector:
 
         return {
             "timestamp": datetime.utcnow().isoformat(),
-            "total_tests": len(results),
-            "drifted_count": len(drifted_features),
-            "drift_detected": len(drifted_features) > 0,
+            "total_tests": int(len(results)),
+            "drifted_count": int(len(drifted_features)),
+            "drift_detected": bool(len(drifted_features) > 0),
             "drifted_features": [
                 {
-                    "feature": r.feature_name,
-                    "test": r.test_name,
-                    "statistic": r.statistic,
-                    "p_value": r.p_value,
-                    "reference_mean": r.reference_mean,
-                    "current_mean": r.current_mean,
+                    "feature": str(r.feature_name),
+                    "test": str(r.test_name),
+                    "statistic": float(r.statistic),
+                    "p_value": float(r.p_value),
+                    "is_drifted": bool(r.is_drifted),
+                    "threshold": float(r.threshold),
+                    "reference_mean": float(r.reference_mean) if r.reference_mean is not None else None,
+                    "current_mean": float(r.current_mean) if r.current_mean is not None else None,
                 }
                 for r in drifted_features
             ],
             "all_results": [
                 {
-                    "feature": r.feature_name,
-                    "test": r.test_name,
-                    "statistic": r.statistic,
-                    "p_value": r.p_value,
-                    "is_drifted": r.is_drifted,
+                    "feature": str(r.feature_name),
+                    "test": str(r.test_name),
+                    "statistic": float(r.statistic),
+                    "p_value": float(r.p_value),
+                    "is_drifted": bool(r.is_drifted),
+                    "threshold": float(r.threshold),
                 }
                 for r in results
             ],

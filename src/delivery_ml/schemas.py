@@ -93,15 +93,15 @@ class TrainingFeaturesSchema(pa.DataFrameModel):
     delivery_time_minutes: float = pa.Field(ge=0, nullable=True)
 
     # Features
-    restaurant_avg_delivery_minutes_30d: float = pa.Field(ge=0, nullable=True)
-    restaurant_order_count_30d: int = pa.Field(ge=0)
-    customer_order_count_30d: int = pa.Field(ge=0)
     distance_km: float = pa.Field(ge=0)
+    traffic_multiplier: float = pa.Field(ge=0, nullable=True)
+    weather_condition: int = pa.Field(ge=0, nullable=True)
+    speed_multiplier: float = pa.Field(nullable=True)
     hour_of_day: int = pa.Field(ge=0, le=23)
-    day_of_week: int = pa.Field(ge=0, le=6)
     is_weekend: bool
-    total: int = pa.Field(ge=0)
-    quantity: int = pa.Field(ge=1)
+    is_peak_hour: bool
+    experience_level: int = pa.Field(ge=0, nullable=True)
+    total_deliveries: int = pa.Field(ge=0, nullable=True)
 
 
 # -----------------------------------------------------------------------------
@@ -121,6 +121,13 @@ class PredictionRequest(BaseModel):
     longitude: float
     total: int = Field(ge=0)
     quantity: int = Field(ge=1)
+    subtotal: float = Field(default=0.0, ge=0)
+    delivery_fee: float = Field(default=0.0, ge=0)
+    tip: float = Field(default=0.0, ge=0)
+    item_count: int = Field(default=0, ge=0)
+    traffic_multiplier: float = Field(default=1.0, ge=0)
+    weather_condition: str | None = Field(default=None)
+    is_peak_hour: bool = Field(default=False)
     timestamp: datetime | None = None  # defaults to now
 
 

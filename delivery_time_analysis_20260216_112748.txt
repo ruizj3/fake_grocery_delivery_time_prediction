@@ -1,0 +1,168 @@
+================================================================================
+DELIVERY TIME FEATURE ANALYSIS
+Analyzing predictive value of all database features
+Generated: 2026-02-16 11:27:48
+================================================================================
+
+📥 Loading data from database...
+   Orders (delivered): 184,052
+   Customers: 60,000
+   Stores: 20
+   Order items aggregated: 200,000
+   Bundles: 184,052
+   Drivers: 6,000
+
+⏱️  Calculating delivery metrics...
+   Removed 0 outliers (delivery time <5 or >300 mins)
+   Final sample size: 184,052
+
+📊 Delivery Time Summary:
+   Mean:   149.6 minutes
+   Median: 150.0 minutes
+   Std:    28.5 minutes
+   Min:    69.0 minutes
+   Max:    231.0 minutes
+
+================================================================================
+NUMERIC FEATURE CORRELATIONS
+================================================================================
+
+Feature                           Pearson r      p-value   Spearman r    Samples
+--------------------------------------------------------------------------------
+rating                            -0.0026       2.60e-01      -0.0024    184,052
+stops_in_bundle                   -0.0025       2.87e-01      -0.0026    184,052
+stop_sequence                     -0.0024       2.99e-01      -0.0031    184,052
+order_day_of_week                  0.0021       3.75e-01       0.0019    184,052
+delivery_fee                      -0.0019       4.06e-01      -0.0014    184,052
+reliability_score                 -0.0017       4.68e-01      -0.0023    184,052
+preferred_shopping_hour            0.0016       4.97e-01       0.0020    184,052
+delivery_distance_km              -0.0014       5.46e-01      -0.0014    184,052
+order_hour                         0.0010       6.66e-01       0.0016    184,052
+item_count                        -0.0009       6.85e-01      -0.0020    184,052
+unique_products                   -0.0009       6.85e-01      -0.0020    184,052
+total_deliveries                  -0.0008       7.30e-01      -0.0006    184,052
+total_quantity                    -0.0007       7.57e-01      -0.0017    184,052
+routine_strength                  -0.0007       7.66e-01      -0.0009    184,052
+speed_multiplier                   0.0005       8.36e-01       0.0002    184,052
+tip                               -0.0004       8.51e-01      -0.0028    184,052
+tax                                0.0001       9.70e-01      -0.0014    184,052
+subtotal                           0.0001       9.70e-01      -0.0014    184,052
+total                             -0.0000       9.93e-01      -0.0015    184,052
+traffic_multiplier                    nan            nan          nan    184,052
+customer_order_number                 nan            nan          nan    184,052
+cancellation_risk                     nan            nan          nan    184,052
+
+Significance: *** p<0.001, ** p<0.01, * p<0.05
+
+================================================================================
+CATEGORICAL FEATURE ANALYSIS (ANOVA)
+================================================================================
+
+Feature                         F-stat      p-value         η²   Groups    Samples
+--------------------------------------------------------------------------------
+customer_city                   1.83       1.03e-01     0.0000        6    184,052  (small)
+persona                         1.78       1.14e-01     0.0000        6    184,052  (small)
+order_day_of_week               0.99       4.29e-01     0.0000        7    184,052  (small)
+experience_level                0.78       4.58e-01     0.0000        3    184,052  (small)
+is_premium                      0.51       4.74e-01     0.0000        2    184,052  (small)
+
+Effect size: large (η²>0.14), medium (η²>0.06), small (η²<0.06)
+
+================================================================================
+MUTUAL INFORMATION ANALYSIS
+================================================================================
+
+Feature                            MI Score     Relative
+-------------------------------------------------------
+total                                0.0023      100.0% ████████████████████
+total_quantity                       0.0021       89.1% █████████████████
+order_hour                           0.0018       78.9% ███████████████
+stops_in_bundle                      0.0007       29.0% █████
+traffic_multiplier                   0.0005       21.8% ████
+subtotal                             0.0000        0.0% 
+customer_order_number                0.0000        0.0% 
+cancellation_risk                    0.0000        0.0% 
+order_day_of_week                    0.0000        0.0% 
+delivery_distance_km                 0.0000        0.0% 
+item_count                           0.0000        0.0% 
+speed_multiplier                     0.0000        0.0% 
+reliability_score                    0.0000        0.0% 
+
+================================================================================
+RANDOM FOREST FEATURE IMPORTANCE
+================================================================================
+
+Feature                          Importance     Relative
+-------------------------------------------------------
+delivery_distance_km                 0.1751      100.0% ████████████████████
+reliability_score                    0.1441       82.2% ████████████████
+speed_multiplier                     0.1319       75.3% ███████████████
+total                                0.1213       69.3% █████████████
+subtotal                             0.1207       68.9% █████████████
+order_hour                           0.0858       49.0% █████████
+total_quantity                       0.0823       47.0% █████████
+item_count                           0.0630       36.0% ███████
+order_day_of_week                    0.0416       23.7% ████
+stops_in_bundle                      0.0343       19.6% ███
+traffic_multiplier                   0.0000        0.0% 
+customer_order_number                0.0000        0.0% 
+cancellation_risk                    0.0000        0.0% 
+
+📊 Model Performance (5-fold CV):
+   R² Score: -0.0017 ± 0.0004
+
+================================================================================
+FEATURE IMPORTANCE BY DELIVERY STAGE
+================================================================================
+
+📍 Order → Confirmed:
+   traffic_multiplier        r=    nan    ↓
+   delivery_distance_km      r=-0.0038    ↓
+   item_count                r=-0.0010    ↓
+   total                     r=-0.0008    ↓
+   order_hour                r=-0.0001    ↓
+
+📍 Confirmed → Picked:
+   order_hour                r= 0.0012    ↑
+   is_peak_hour              r=    nan    ↓
+   total                     r=-0.0011    ↓
+   item_count                r=-0.0008    ↓
+   traffic_multiplier        r=    nan    ↓
+
+📍 Picked → Delivered:
+   traffic_multiplier        r=    nan    ↓
+   total                     r= 0.0014    ↑
+   delivery_distance_km      r=-0.0014    ↓
+   order_hour                r= 0.0002    ↑
+   is_peak_hour              r=    nan    ↓
+
+================================================================================
+🏆 FEATURE IMPORTANCE SUMMARY
+================================================================================
+
+Rank   Feature                           Avg Score    Methods
+------------------------------------------------------------
+1      rating                               1.0000          1 ⭐⭐⭐⭐⭐
+2      customer_city                        1.0000          1 ⭐⭐⭐⭐⭐
+3      persona                              0.9702          1 ⭐⭐⭐⭐⭐
+4      stop_sequence                        0.9235          1 ⭐⭐⭐⭐⭐
+5      delivery_fee                         0.7382          1 ⭐⭐⭐⭐
+6      preferred_shopping_hour              0.6039          1 ⭐⭐⭐⭐
+7      total                                0.5668          3 ⭐⭐⭐
+8      order_hour                           0.5540          3 ⭐⭐⭐
+9      total_quantity                       0.5451          3 ⭐⭐⭐
+10     delivery_distance_km                 0.5121          3 ⭐⭐⭐
+11     reliability_score                    0.4890          3 ⭐⭐⭐
+12     stops_in_bundle                      0.4772          3 ⭐⭐⭐
+13     order_day_of_week                    0.4188          4 ⭐⭐⭐
+14     unique_products                      0.3607          1 ⭐⭐
+15     speed_multiplier                     0.3122          3 ⭐⭐
+
+💡 Interpretation:
+   - Features with high scores across multiple methods are most reliable
+   - Consider these features first when building ML models
+   - Low-scoring features may add noise rather than signal
+
+================================================================================
+ANALYSIS COMPLETE
+================================================================================

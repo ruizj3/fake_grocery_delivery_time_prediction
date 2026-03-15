@@ -139,7 +139,7 @@ class OfflineFeatureStore:
                 store_id,
                 ? as computed_at,
                 ? as window_days,
-                AVG(delivery_time_minutes) as avg_delivery_minutes,
+                AVG((julianday(delivered_at) - julianday(created_at)) * 24 * 60) as avg_delivery_minutes,
                 COUNT(*) as order_count
             FROM orders
             WHERE delivered_at IS NOT NULL
@@ -363,6 +363,14 @@ class FeatureStore:
         placed_at: datetime,
         order_total_cents: int,
         item_count: int,
+        order_id: str = "",
+        subtotal: float = 0.0,
+        delivery_fee: float = 0.0,
+        tip: float = 0.0,
+        quantity: int = 0,
+        traffic_multiplier: float = 1.0,
+        weather_condition: str | None = None,
+        is_peak_hour: bool = False,
     ) -> dict[str, Any]:
         """
         Get all features needed for inference.
@@ -370,6 +378,7 @@ class FeatureStore:
         Combines:
         - Cached entity features from online store (if Redis available)
         - Real-time computed order features
+        - Driver and bundle features (from database)
         """
         restaurant_features = None
         customer_features = None
@@ -415,10 +424,21 @@ class FeatureStore:
             delivery_lon,
             placed_at,
             order_total_cents,
-            item_count,
+            quantity or item_count,
+            subtotal=subtotal,
+            delivery_fee=delivery_fee,
+            tip=tip,
+            item_count=item_count,
+            traffic_multiplier=traffic_multiplier,
+            weather_condition=weather_condition,
+            is_peak_hour=is_peak_hour,
         )
 
-        return {**restaurant_features, **customer_features, **order_features}
+        # Driver and bundle features (from database lookup)
+        driver_features = self.computer.compute_driver_features_for_order(order_id) if order_id else {"reliability_score": 0.0, "speed_multiplier": 1.0, "experience_level": 0, "total_deliveries": 0}
+        bundle_features = self.computer.compute_bundle_features_for_order(order_id) if order_id else {"stop_sequence": 1, "stops_in_bundle": 1}
+
+        return {**restaurant_features, **customer_features, **order_features, **driver_features, **bundle_features}
 
     def close(self) -> None:
         self.offline.close()

@@ -1,10 +1,12 @@
 """FastAPI serving endpoint for delivery time predictions."""
 
+import asyncio
 import json
 import sqlite3
+import threading
 import time
 from contextlib import asynccontextmanager
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -14,28 +16,116 @@ from pydantic import BaseModel
 
 from delivery_ml.config import settings
 from delivery_ml.features.store import FeatureStore
+from delivery_ml.monitoring.auto_drift_monitor import AutoDriftMonitor
 from delivery_ml.schemas import PredictionRequest, PredictionResponse
-from delivery_ml.training.pipeline import DeliveryTimeModel
+from delivery_ml.training.pipeline import DeliveryTimeModel, train_model
 
 
 # Global state
 model: DeliveryTimeModel | None = None
 feature_store: FeatureStore | None = None
 predictions_db_path: Path = Path("predictions.db")
+drift_monitor: AutoDriftMonitor | None = None
+drift_monitor_thread: threading.Thread | None = None
+stop_drift_monitor = threading.Event()
+model_lock = threading.Lock()  # Protects model access during reload
+
+
+def run_drift_monitoring_loop():
+    """Background thread that monitors for drift and triggers retraining."""
+    global model, drift_monitor
+    cih = 1  # Check interval hours
+    print(f"🔍 Drift monitoring started (checking every {cih} hours)")
+    
+    # Wait a bit for the API to fully start
+    time.sleep(10)
+    
+    while not stop_drift_monitor.is_set():
+        try:
+            # Initialize monitor if needed
+            if drift_monitor is None:
+                drift_monitor = AutoDriftMonitor(
+                    check_interval_hours=cih,  # Check every 6 hours
+                    alert_on_n_features=3,   # Alert if 3+ features drift
+                )
+            
+            # Run drift check
+            print(f"[{datetime.now()}] Running drift check...")
+            result = drift_monitor.run_drift_check()
+            
+            if result.get("error"):
+                print(f"⚠️  Drift check error: {result['error']}")
+            elif result.get("skipped"):
+                print(f"⏭️  Drift check skipped: {result['reason']}")
+            elif result.get("drift_detected"):
+                drifted_count = result.get("drifted_count", 0)
+                print(f"🚨 DRIFT DETECTED! {drifted_count} drifted tests")
+                
+                # Check if we should retrain (critical drift)
+                # With 9 features, we have 18 total tests (9 × 2: KS + PSI)
+                # Retrain if 33%+ of tests fail (6+ out of 18)
+                if drifted_count >= 6:
+                    print("🔄 Critical drift detected - triggering automatic retraining...")
+                    
+                    try:
+                        # Retrain model on last 31 days with 20% test split
+                        # This happens in the background without blocking predictions
+                        print("Triggering automatic retraining on last 31 days of data...")
+                        new_model_version = train_model()
+                        
+                        print(f"✅ Model retrained successfully! Version: {new_model_version}")
+                        
+                        # Reload the model with thread-safe swap
+                        # Predictions continue using old model during this brief lock
+                        model_path = settings.model_dir / "delivery_time_model_latest.pkl"
+                        new_model = DeliveryTimeModel.load(model_path)
+                        
+                        with model_lock:
+                            model = new_model
+                        
+                        print(f"✅ New model loaded into API: {model.version}")
+                        
+                        # Acknowledge alerts
+                        alerts = drift_monitor.get_unacknowledged_alerts()
+                        for alert in alerts:
+                            drift_monitor.acknowledge_alert(alert['alert_id'])
+                        print(f"✅ Acknowledged {len(alerts)} drift alerts")
+                        
+                    except Exception as e:
+                        print(f"❌ Retraining failed: {e}")
+                        print("   Predictions will continue with existing model")
+                else:
+                    print(f"⚠️  Warning-level drift detected (not critical yet)")
+            else:
+                print("✅ No drift detected - model is healthy")
+        
+        except Exception as e:
+            print(f"❌ Error in drift monitoring loop: {e}")
+        
+        # Sleep for a bit before next check (check every 5 minutes if interval hasn't elapsed)
+        for _ in range(60):  # Check every 5 seconds for stop signal
+            if stop_drift_monitor.is_set():
+                break
+            time.sleep(5)
+    
+    print("🛑 Drift monitoring stopped")
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Load model and initialize feature store on startup."""
-    global model, feature_store, predictions_db_path
+    global model, feature_store, predictions_db_path, drift_monitor_thread, stop_drift_monitor
 
     # Load model
     model_path = settings.model_dir / "delivery_time_model_latest.pkl"
     if not model_path.exists():
         print(f"Warning: Model not found at {model_path}")
-        model = None
+        with model_lock:
+            model = None
     else:
-        model = DeliveryTimeModel.load(model_path)
+        loaded_model = DeliveryTimeModel.load(model_path)
+        with model_lock:
+            model = loaded_model
         print(f"Loaded model version: {model.version}")
 
     # Initialize feature store
@@ -46,12 +136,34 @@ async def lifespan(app: FastAPI):
     # Initialize predictions database
     _initialize_predictions_db()
     print(f"Predictions database initialized at {predictions_db_path}")
+    
+    # Start drift monitoring in background thread
+    stop_drift_monitor.clear()
+    drift_monitor_thread = threading.Thread(
+        target=run_drift_monitoring_loop,
+        daemon=True,
+        name="DriftMonitor"
+    )
+    drift_monitor_thread.start()
+    print("✅ Background drift monitoring thread started")
 
     yield
 
     # Cleanup
+    print("Shutting down API...")
+    stop_drift_monitor.set()
+    
+    if drift_monitor_thread and drift_monitor_thread.is_alive():
+        drift_monitor_thread.join(timeout=10)
+        print("Drift monitoring thread stopped")
+    
+    if drift_monitor:
+        drift_monitor.close()
+    
     if feature_store:
         feature_store.close()
+    
+    print("API shutdown complete")
 
 
 app = FastAPI(
@@ -78,6 +190,13 @@ class ConfirmedOrder(BaseModel):
     delivery_longitude: float
     total: int
     quantity: int | None = 1
+    subtotal: float | None = 0.0
+    delivery_fee: float | None = 0.0
+    tip: float | None = 0.0
+    item_count: int | None = 0
+    traffic_multiplier: float | None = 1.0
+    weather_condition: str | None = None
+    is_peak_hour: bool | None = False
     created_at: str  # ISO datetime string
 
 
@@ -179,24 +298,31 @@ def _save_prediction_to_db(
 @app.get("/health")
 async def health_check() -> dict[str, str]:
     """Health check endpoint."""
+    with model_lock:
+        is_loaded = model is not None
+        version = model.version if model else "none"
+    
     return {
         "status": "healthy",
-        "model_loaded": str(model is not None),
-        "model_version": model.version if model else "none",
+        "model_loaded": str(is_loaded),
+        "model_version": version,
     }
 
 
 @app.get("/model/info")
 async def model_info() -> dict[str, Any]:
     """Get information about the loaded model."""
-    if model is None:
+    with model_lock:
+        current_model = model
+    
+    if current_model is None:
         raise HTTPException(status_code=503, detail="Model not loaded")
 
     return {
-        "version": model.version,
-        "features": model.feature_names,
-        "metrics": model.metrics,
-        "feature_importance": model.get_feature_importance(),
+        "version": current_model.version,
+        "features": current_model.feature_names,
+        "metrics": current_model.metrics,
+        "feature_importance": current_model.get_feature_importance(),
     }
 
 
@@ -231,11 +357,24 @@ async def predict(request: PredictionRequest) -> PredictionResponse:
             delivery_lon=request.delivery_longitude,
             placed_at=prediction_timestamp,
             order_total_cents=request.total,
-            item_count=request.quantity,
+            item_count=request.item_count or request.quantity,
+            order_id=request.order_id,
+            subtotal=request.subtotal,
+            delivery_fee=request.delivery_fee,
+            tip=request.tip,
+            quantity=request.quantity,
+            traffic_multiplier=request.traffic_multiplier,
+            weather_condition=request.weather_condition,
+            is_peak_hour=request.is_peak_hour,
         )
 
-        # Predict
-        prediction = model.predict(features)
+        # Predict with thread-safe model access
+        # Brief lock ensures we get consistent model reference
+        with model_lock:
+            current_model = model
+            model_version = current_model.version if current_model else "unknown"
+        
+        prediction = current_model.predict(features)
 
         # Log for monitoring
         latency_ms = (time.time() - start_time) * 1000
@@ -245,7 +384,7 @@ async def predict(request: PredictionRequest) -> PredictionResponse:
             "prediction": prediction,
             "latency_ms": latency_ms,
             "features": features,
-            "model_version": model.version,
+            "model_version": model_version,
         }
         request_log.append(log_entry)
 
@@ -257,7 +396,7 @@ async def predict(request: PredictionRequest) -> PredictionResponse:
             order_id=request.order_id,
             predicted_delivery_minutes=prediction,
             prediction_timestamp=prediction_timestamp,
-            model_version=model.version,
+            model_version=model_version,
             features_used=features,
         )
 
@@ -328,6 +467,11 @@ async def predict_batch(request: BatchPredictionRequest) -> BatchPredictionRespo
     if feature_store is None:
         raise HTTPException(status_code=503, detail="Feature store not initialized")
     
+    # Get model reference with lock (brief lock doesn't block retraining)
+    with model_lock:
+        current_model = model
+        model_version = current_model.version if current_model else "unknown"
+    
     predictions = []
     errors = []
     successful = 0
@@ -347,11 +491,19 @@ async def predict_batch(request: BatchPredictionRequest) -> BatchPredictionRespo
                 delivery_lon=order.delivery_longitude,
                 placed_at=prediction_timestamp,
                 order_total_cents=order.total,
-                item_count=order.quantity or 1,
+                item_count=order.item_count or order.quantity or 1,
+                order_id=order.order_id,
+                subtotal=order.subtotal or 0.0,
+                delivery_fee=order.delivery_fee or 0.0,
+                tip=order.tip or 0.0,
+                quantity=order.quantity or 1,
+                traffic_multiplier=order.traffic_multiplier or 1.0,
+                weather_condition=order.weather_condition,
+                is_peak_hour=order.is_peak_hour or False,
             )
             
-            # Make prediction
-            prediction = model.predict(features)
+            # Make prediction (no lock needed - using cached reference)
+            prediction = current_model.predict(features)
             
             # Save to database
             _save_prediction_to_db(
@@ -360,7 +512,7 @@ async def predict_batch(request: BatchPredictionRequest) -> BatchPredictionRespo
                 store_id=order.store_id,
                 prediction=prediction,
                 features=features,
-                model_version=model.version,
+                model_version=model_version,
                 timestamp=prediction_timestamp,
             )
             
@@ -369,7 +521,7 @@ async def predict_batch(request: BatchPredictionRequest) -> BatchPredictionRespo
                 OrderPrediction(
                     order_id=order.order_id,
                     predicted_delivery_minutes=prediction,
-                    model_version=model.version,
+                    model_version=model_version,
                     prediction_timestamp=prediction_timestamp.isoformat(),
                 )
             )

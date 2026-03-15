@@ -51,7 +51,7 @@ class TestFeatureComputation:
             delivery_lon=-122.35,
             placed_at=datetime(2024, 3, 15, 14, 30),  # 2:30 PM
             order_total_cents=2500,
-            item_count=3,
+            quantity=3,
         )
 
         assert features["hour_of_day"] == 14
@@ -74,7 +74,7 @@ class TestFeatureComputation:
             delivery_lon=-122.35,
             placed_at=datetime(2024, 3, 16, 12, 0),  # Saturday
             order_total_cents=2500,
-            item_count=3,
+            quantity=3,
         )
 
         # Monday
@@ -85,7 +85,7 @@ class TestFeatureComputation:
             delivery_lon=-122.35,
             placed_at=datetime(2024, 3, 18, 12, 0),  # Monday
             order_total_cents=2500,
-            item_count=3,
+            quantity=3,
         )
 
         assert features_sat["is_weekend"] is True

@@ -39,6 +39,38 @@ def haversine_distance_km(
     return R * c
 
 
+# Encoding maps for categorical features
+WEATHER_ENCODING: dict[str | None, int] = {
+    None: 0,
+    "clear": 0,
+    "cloudy": 1,
+    "rain": 2,
+    "snow": 3,
+    "storm": 4,
+}
+
+EXPERIENCE_ENCODING: dict[str | None, int] = {
+    None: 0,
+    "intermediate": 0,
+    "advanced": 1,
+    "expert": 2,
+}
+
+
+def encode_weather(value: str | None) -> int:
+    """Encode weather condition string to integer."""
+    if value is None:
+        return WEATHER_ENCODING[None]
+    return WEATHER_ENCODING.get(value.lower().strip(), 0)
+
+
+def encode_experience(value: str | None) -> int:
+    """Encode driver experience level string to integer."""
+    if value is None:
+        return EXPERIENCE_ENCODING[None]
+    return EXPERIENCE_ENCODING.get(value.lower().strip(), 0)
+
+
 class FeatureComputer:
     """Computes features from raw events stored in SQLite."""
 
@@ -195,7 +227,14 @@ class FeatureComputer:
         delivery_lon: float,
         placed_at: datetime,
         order_total_cents: int,
-        item_count: int,
+        quantity: int,
+        subtotal: float = 0.0,
+        delivery_fee: float = 0.0,
+        tip: float = 0.0,
+        item_count: int = 0,
+        traffic_multiplier: float = 1.0,
+        weather_condition: str | None = None,
+        is_peak_hour: bool = False,
     ) -> dict[str, float | int | bool]:
         """Compute features derived directly from order attributes."""
         return {
@@ -206,8 +245,76 @@ class FeatureComputer:
             "day_of_week": placed_at.weekday(),
             "is_weekend": placed_at.weekday() >= 5,
             "total": order_total_cents,
-            "quantity": item_count,
+            "subtotal": subtotal,
+            "delivery_fee": delivery_fee,
+            "tip": tip,
+            "quantity": quantity,
+            "item_count": item_count or quantity,
+            "traffic_multiplier": traffic_multiplier,
+            "weather_condition": encode_weather(weather_condition),
+            "is_peak_hour": is_peak_hour,
         }
+
+    def compute_driver_features_for_order(
+        self,
+        order_id: str,
+    ) -> dict[str, float | int | None]:
+        """
+        Compute driver-related features for an order.
+
+        Looks up the driver assigned via bundles and gets their
+        reliability_score, speed_multiplier, experience_level, and total_deliveries.
+        """
+        cursor = self.conn.execute(
+            """
+            SELECT d.reliability_score, d.speed_multiplier,
+                   d.experience_level, d.total_deliveries
+            FROM bundles b
+            JOIN bundle_stops bs ON b.bundle_id = bs.bundle_id
+            JOIN drivers d ON b.driver_id = d.driver_id
+            WHERE bs.order_id = ?
+            LIMIT 1
+            """,
+            (order_id,),
+        )
+        row = cursor.fetchone()
+        if row:
+            return {
+                "reliability_score": float(row["reliability_score"]) if row["reliability_score"] is not None else 0.0,
+                "speed_multiplier": float(row["speed_multiplier"]) if row["speed_multiplier"] is not None else 1.0,
+                "experience_level": encode_experience(row["experience_level"]),
+                "total_deliveries": int(row["total_deliveries"]) if row["total_deliveries"] is not None else 0,
+            }
+        return {"reliability_score": 0.0, "speed_multiplier": 1.0, "experience_level": 0, "total_deliveries": 0}
+
+    def compute_bundle_features_for_order(
+        self,
+        order_id: str,
+    ) -> dict[str, int | None]:
+        """
+        Compute bundle/route features for an order.
+
+        Gets stops_in_bundle (total stops) and stop_sequence (this order's position).
+        """
+        cursor = self.conn.execute(
+            """
+            SELECT
+                bs.stop_sequence,
+                b.order_count as stops_in_bundle
+            FROM bundle_stops bs
+            JOIN bundles b ON bs.bundle_id = b.bundle_id
+            WHERE bs.order_id = ?
+            LIMIT 1
+            """,
+            (order_id,),
+        )
+        row = cursor.fetchone()
+        if row:
+            return {
+                "stop_sequence": int(row["stop_sequence"]) if row["stop_sequence"] is not None else 1,
+                "stops_in_bundle": int(row["stops_in_bundle"]) if row["stops_in_bundle"] is not None else 1,
+            }
+        return {"stop_sequence": 1, "stops_in_bundle": 1}
 
     def compute_features_for_order(
         self,
@@ -220,7 +327,14 @@ class FeatureComputer:
         delivery_lon: float,
         placed_at: datetime,
         order_total_cents: int,
-        item_count: int,
+        quantity: int,
+        subtotal: float = 0.0,
+        delivery_fee: float = 0.0,
+        tip: float = 0.0,
+        item_count: int = 0,
+        traffic_multiplier: float = 1.0,
+        weather_condition: str | None = None,
+        is_peak_hour: bool = False,
     ) -> dict[str, float | int | bool | None]:
         """
         Compute all features for a single order at prediction time.
@@ -248,9 +362,22 @@ class FeatureComputer:
                 delivery_lon,
                 placed_at,
                 order_total_cents,
-                item_count,
+                quantity,
+                subtotal=subtotal,
+                delivery_fee=delivery_fee,
+                tip=tip,
+                item_count=item_count,
+                traffic_multiplier=traffic_multiplier,
+                weather_condition=weather_condition,
+                is_peak_hour=is_peak_hour,
             )
         )
+
+        # Driver features (from bundles/drivers tables)
+        features.update(self.compute_driver_features_for_order(order_id))
+
+        # Bundle/route features
+        features.update(self.compute_bundle_features_for_order(order_id))
 
         return features
 
@@ -278,23 +405,32 @@ class FeatureComputer:
         cursor = self.conn.execute(
             """
             SELECT
-                order_id,
-                customer_id,
-                store_id,
-                created_at,
-                delivered_at,
-                (julianday(delivered_at) - julianday(created_at)) * 24 * 60 as delivery_time_minutes,
-                latitude,
-                longitude,
-                delivery_latitude,
-                delivery_longitude,
-                total,
-                quantity
-            FROM orders
-            WHERE delivered_at IS NOT NULL
-              AND created_at >= ?
-              AND created_at < ?
-            ORDER BY created_at
+                o.order_id,
+                o.customer_id,
+                o.store_id,
+                o.created_at,
+                o.delivered_at,
+                (julianday(o.delivered_at) - julianday(o.created_at)) * 24 * 60 as delivery_time_minutes,
+                s.latitude,
+                s.longitude,
+                o.delivery_latitude,
+                o.delivery_longitude,
+                o.total,
+                COALESCE(o.subtotal, 0) as subtotal,
+                COALESCE(o.delivery_fee, 0) as delivery_fee,
+                COALESCE(o.tip, 0) as tip,
+                COALESCE(oi.quantity, 1) as quantity,
+                COALESCE(oi.item_count, 1) as item_count
+            FROM orders o
+            LEFT JOIN stores s ON o.store_id = s.store_id
+            LEFT JOIN (
+                SELECT order_id, SUM(quantity) AS quantity, COUNT(*) AS item_count
+                FROM order_items GROUP BY order_id
+            ) oi ON o.order_id = oi.order_id
+            WHERE o.delivered_at IS NOT NULL
+              AND o.created_at >= ?
+              AND o.created_at < ?
+            ORDER BY o.created_at
             """,
             (start_str, end_str),
         )
@@ -325,7 +461,11 @@ class FeatureComputer:
                 delivery_lon=row_dict["delivery_longitude"],
                 placed_at=placed_at,
                 order_total_cents=row_dict["total"],
-                item_count=row_dict["quantity"],
+                quantity=row_dict["quantity"],
+                subtotal=row_dict["subtotal"],
+                delivery_fee=row_dict["delivery_fee"],
+                tip=row_dict["tip"],
+                item_count=row_dict["item_count"],
             )
             features["delivery_time_minutes"] = row_dict["delivery_time_minutes"]
             feature_rows.append(features)
@@ -351,31 +491,52 @@ class FeatureComputer:
         end_str = end_date.strftime("%Y-%m-%d %H:%M:%S")
         
         # Get base order data with order features computed in SQL
-        # delivery_time_minutes calculated from (delivered_at - created_at)
+        # Includes new features: subtotal, delivery_fee, tip, item_count,
+        # driver reliability/speed, and bundle stop info
         cursor = self.conn.execute(
             """
             SELECT
-                orders.order_id,
-                orders.customer_id,
-                orders.store_id,
-                orders.created_at,
-                orders.delivered_at,
-                (julianday(orders.delivered_at) - julianday(orders.created_at)) * 24 * 60 as delivery_time_minutes,
-                stores.latitude,
-                stores.longitude,
-                orders.delivery_latitude,
-                orders.delivery_longitude,
-                orders.total,
-                order_items.quantity,
-                CAST(strftime('%H', orders.created_at) AS INTEGER) as hour_of_day,
-                CAST(strftime('%w', orders.created_at) AS INTEGER) as day_of_week
-            FROM orders
-            LEFT JOIN stores ON orders.store_id = stores.store_id
-            LEFT JOIN order_items ON orders.order_id = order_items.order_id
-            WHERE orders.delivered_at IS NOT NULL
-              AND orders.created_at >= ?
-              AND orders.created_at < ?
-            ORDER BY orders.created_at
+                o.order_id,
+                o.customer_id,
+                o.store_id,
+                o.created_at,
+                o.delivered_at,
+                (julianday(o.delivered_at) - julianday(o.created_at)) * 24 * 60 as delivery_time_minutes,
+                s.latitude,
+                s.longitude,
+                o.delivery_latitude,
+                o.delivery_longitude,
+                o.total,
+                COALESCE(o.subtotal, 0) as subtotal,
+                COALESCE(o.delivery_fee, 0) as delivery_fee,
+                COALESCE(o.tip, 0) as tip,
+                COALESCE(oi.quantity, 1) as quantity,
+                COALESCE(oi.item_count, 1) as item_count,
+                CAST(strftime('%H', o.created_at) AS INTEGER) as hour_of_day,
+                CAST(strftime('%w', o.created_at) AS INTEGER) as day_of_week,
+                COALESCE(d.reliability_score, 0) as reliability_score,
+                COALESCE(d.speed_multiplier, 1) as speed_multiplier,
+                COALESCE(b.order_count, 1) as stops_in_bundle,
+                COALESCE(bs.stop_sequence, 1) as stop_sequence,
+                COALESCE(o.traffic_multiplier, 1.0) as traffic_multiplier,
+                o.weather_condition,
+                COALESCE(o.is_peak_hour, 0) as is_peak_hour,
+                COALESCE(o.is_weekend, 0) as is_weekend_db,
+                d.experience_level,
+                COALESCE(d.total_deliveries, 0) as total_deliveries
+            FROM orders o
+            LEFT JOIN stores s ON o.store_id = s.store_id
+            LEFT JOIN (
+                SELECT order_id, SUM(quantity) AS quantity, COUNT(*) AS item_count
+                FROM order_items GROUP BY order_id
+            ) oi ON o.order_id = oi.order_id
+            LEFT JOIN bundle_stops bs ON o.order_id = bs.order_id
+            LEFT JOIN bundles b ON bs.bundle_id = b.bundle_id
+            LEFT JOIN drivers d ON b.driver_id = d.driver_id
+            WHERE o.delivered_at IS NOT NULL
+              AND o.created_at >= ?
+              AND o.created_at < ?
+            ORDER BY o.created_at
             """,
             (start_str, end_str),
         )
@@ -423,9 +584,22 @@ class FeatureComputer:
                 "distance_km": distance_km,
                 "hour_of_day": row_dict["hour_of_day"],
                 "day_of_week": day_of_week,
-                "is_weekend": day_of_week >= 5,
+                "is_weekend": bool(row_dict["is_weekend_db"]) if row_dict["is_weekend_db"] else day_of_week >= 5,
                 "total": row_dict["total"],
+                "subtotal": row_dict["subtotal"],
+                "delivery_fee": row_dict["delivery_fee"],
+                "tip": row_dict["tip"],
                 "quantity": row_dict["quantity"],
+                "item_count": row_dict["item_count"],
+                "reliability_score": row_dict["reliability_score"],
+                "speed_multiplier": row_dict["speed_multiplier"],
+                "stops_in_bundle": row_dict["stops_in_bundle"],
+                "stop_sequence": row_dict["stop_sequence"],
+                "traffic_multiplier": row_dict["traffic_multiplier"],
+                "weather_condition": encode_weather(row_dict["weather_condition"]),
+                "is_peak_hour": bool(row_dict["is_peak_hour"]),
+                "experience_level": encode_experience(row_dict["experience_level"]),
+                "total_deliveries": row_dict["total_deliveries"],
                 **restaurant_features,
                 **customer_features,
             }
