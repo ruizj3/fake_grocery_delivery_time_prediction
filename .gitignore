@@ -209,6 +209,10 @@ predictions.db
 exports/
 .DS_Store
 
+# Text files (except requirements.txt)
+*.txt
+!requirements.txt
+
 # ML artifacts
 mlruns/
 models/
