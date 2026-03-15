@@ -194,21 +194,192 @@ is_weekend = register_feature(
     )
 )
 
+traffic_multiplier = register_feature(
+    FeatureDefinition(
+        name="traffic_multiplier",
+        description="Traffic multiplier affecting delivery time (1.0 = normal)",
+        entity=Entity.ORDER,
+        aggregation=AggregationType.NONE,
+        window_days=None,
+        freshness=FreshnessRequirement.REALTIME,
+        dtype="float",
+    )
+)
+
+weather_condition = register_feature(
+    FeatureDefinition(
+        name="weather_condition",
+        description="Encoded weather condition at order time (0=clear, 1=cloudy, 2=rain, 3=snow, 4=storm)",
+        entity=Entity.ORDER,
+        aggregation=AggregationType.NONE,
+        window_days=None,
+        freshness=FreshnessRequirement.REALTIME,
+        dtype="int",
+    )
+)
+
+is_peak_hour = register_feature(
+    FeatureDefinition(
+        name="is_peak_hour",
+        description="Whether the order was placed during peak hours",
+        entity=Entity.ORDER,
+        aggregation=AggregationType.NONE,
+        window_days=None,
+        freshness=FreshnessRequirement.STATIC,
+        dtype="bool",
+    )
+)
+
+
+# -----------------------------------------------------------------------------
+# Order Financial Features
+# -----------------------------------------------------------------------------
+
+subtotal = register_feature(
+    FeatureDefinition(
+        name="subtotal",
+        description="Order subtotal before taxes and fees",
+        entity=Entity.ORDER,
+        aggregation=AggregationType.NONE,
+        window_days=None,
+        freshness=FreshnessRequirement.STATIC,
+        dtype="float",
+    )
+)
+
+delivery_fee = register_feature(
+    FeatureDefinition(
+        name="delivery_fee",
+        description="Delivery fee charged for the order",
+        entity=Entity.ORDER,
+        aggregation=AggregationType.NONE,
+        window_days=None,
+        freshness=FreshnessRequirement.STATIC,
+        dtype="float",
+    )
+)
+
+tip = register_feature(
+    FeatureDefinition(
+        name="tip",
+        description="Tip amount for the order",
+        entity=Entity.ORDER,
+        aggregation=AggregationType.NONE,
+        window_days=None,
+        freshness=FreshnessRequirement.STATIC,
+        dtype="float",
+    )
+)
+
+item_count = register_feature(
+    FeatureDefinition(
+        name="item_count",
+        description="Number of unique line items in the order",
+        entity=Entity.ORDER,
+        aggregation=AggregationType.NONE,
+        window_days=None,
+        freshness=FreshnessRequirement.STATIC,
+        dtype="int",
+    )
+)
+
+
+# -----------------------------------------------------------------------------
+# Driver Features
+# -----------------------------------------------------------------------------
+
+reliability_score = register_feature(
+    FeatureDefinition(
+        name="reliability_score",
+        description="Driver reliability score (higher is better)",
+        entity=Entity.DRIVER,
+        aggregation=AggregationType.NONE,
+        window_days=None,
+        freshness=FreshnessRequirement.DAILY,
+        dtype="float",
+    )
+)
+
+speed_multiplier = register_feature(
+    FeatureDefinition(
+        name="speed_multiplier",
+        description="Driver speed multiplier affecting delivery time",
+        entity=Entity.DRIVER,
+        aggregation=AggregationType.NONE,
+        window_days=None,
+        freshness=FreshnessRequirement.DAILY,
+        dtype="float",
+    )
+)
+
+experience_level = register_feature(
+    FeatureDefinition(
+        name="experience_level",
+        description="Encoded driver experience level (0=intermediate, 1=advanced, 2=expert)",
+        entity=Entity.DRIVER,
+        aggregation=AggregationType.NONE,
+        window_days=None,
+        freshness=FreshnessRequirement.DAILY,
+        dtype="int",
+    )
+)
+
+total_deliveries = register_feature(
+    FeatureDefinition(
+        name="total_deliveries",
+        description="Total number of deliveries completed by the driver",
+        entity=Entity.DRIVER,
+        aggregation=AggregationType.NONE,
+        window_days=None,
+        freshness=FreshnessRequirement.DAILY,
+        dtype="int",
+    )
+)
+
+
+# -----------------------------------------------------------------------------
+# Bundle/Route Features
+# -----------------------------------------------------------------------------
+
+stops_in_bundle = register_feature(
+    FeatureDefinition(
+        name="stops_in_bundle",
+        description="Number of stops in the delivery bundle for this order",
+        entity=Entity.ORDER,
+        aggregation=AggregationType.NONE,
+        window_days=None,
+        freshness=FreshnessRequirement.STATIC,
+        dtype="int",
+    )
+)
+
+stop_sequence = register_feature(
+    FeatureDefinition(
+        name="stop_sequence",
+        description="Position of this order in the delivery bundle route",
+        entity=Entity.ORDER,
+        aggregation=AggregationType.NONE,
+        window_days=None,
+        freshness=FreshnessRequirement.STATIC,
+        dtype="int",
+    )
+)
+
 
 # -----------------------------------------------------------------------------
 # Feature Sets (groups of features used together)
 # -----------------------------------------------------------------------------
 
 TRAINING_FEATURES = [
-    "restaurant_avg_delivery_minutes_30d",
-    "restaurant_order_count_30d",
-    "customer_order_count_30d",
-    "distance_km",
-    "hour_of_day",
-    "day_of_week",
-    "is_weekend",
-    "total",
-    "quantity",
+    "distance_km",           # Haversine distance from store to delivery location
+    "traffic_multiplier",    # Traffic condition multiplier (from orders table)
+    "weather_condition",     # Encoded weather condition (from orders table)
+    "speed_multiplier",      # Driver speed multiplier (from drivers table)
+    "hour_of_day",           # Hour of day when order was placed
+    "is_weekend",            # Whether order was placed on a weekend
+    "is_peak_hour",          # Whether order was placed during peak hours
+    "experience_level",      # Encoded driver experience level (from drivers table)
+    "total_deliveries",      # Driver's total completed deliveries (from drivers table)
 ]
 
 # Features that require aggregation from historical data

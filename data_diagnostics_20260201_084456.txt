@@ -1,0 +1,40 @@
+================================================================================
+DATA QUALITY DIAGNOSTIC REPORT
+================================================================================
+
+Generated: 2026-02-01T08:44:56.012099
+Data Range: 2025-11-30 00:03:04.784600 to 2026-01-30 22:53:58.400289
+Total Samples: 162640
+
+TARGET STATISTICS:
+shape: (9, 2)
+┌────────────┬───────────────────────┐
+│ statistic  ┆ delivery_time_minutes │
+│ ---        ┆ ---                   │
+│ str        ┆ f64                   │
+╞════════════╪═══════════════════════╡
+│ count      ┆ 162640.0              │
+│ null_count ┆ 0.0                   │
+│ mean       ┆ 153.364185            │
+│ std        ┆ 28.750262             │
+│ min        ┆ 68.000001             │
+│ 25%        ┆ 133.0                 │
+│ 50%        ┆ 153.0                 │
+│ 75%        ┆ 174.0                 │
+│ max        ┆ 236.0                 │
+└────────────┴───────────────────────┘
+
+FEATURE CORRELATIONS:
+hour_of_day                           -0.000020
+quantity                              -0.000225
+is_weekend                            -0.000837
+total                                 -0.001056
+restaurant_avg_delivery_minutes_30d   -0.001281
+distance_km                           -0.001489
+day_of_week                           -0.001565
+customer_order_count_30d              -0.001646
+restaurant_order_count_30d            -0.003193
+Name: delivery_time_minutes, dtype: float64
+
+ISSUES FOUND:
+• Features have no correlation with target - need better features

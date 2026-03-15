@@ -19,7 +19,7 @@ class Settings(BaseSettings):
     redis_port: int = 6379
 
     # Training
-    train_test_split_date: str = "2024-01-01"
+    test_size: float = 0.2  # Percentage of data to use for test set (0.0-1.0)
     feature_window_days: int = 30
 
     # Serving

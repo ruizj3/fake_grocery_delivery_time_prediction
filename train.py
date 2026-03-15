@@ -1,13 +1,9 @@
-from datetime import datetime
-from delivery_ml.training.pipeline import train_model
-from delivery_ml.features.store import OfflineFeatureStore
+#!/usr/bin/env python3
+"""Train delivery time prediction model.
 
-store = OfflineFeatureStore()
-min_date, max_date = store.get_date_range()
-print(f"Data range: {min_date} to {max_date}")
+This is a convenience wrapper for the main training CLI.
+"""
 
-model_version = train_model(
-    train_start=min_date,
-    train_end=max_date,
-)
-print(f"Trained model: {model_version}")
+if __name__ == "__main__":
+    from delivery_ml.cli.train import main
+    main()

@@ -112,10 +112,20 @@ class BatchPredictor:
                     o.delivery_latitude,
                     o.delivery_longitude,
                     o.total,
+                    COALESCE(o.subtotal, 0) as subtotal,
+                    COALESCE(o.delivery_fee, 0) as delivery_fee,
+                    COALESCE(o.tip, 0) as tip,
                     COALESCE(
                         (SELECT SUM(quantity) FROM order_items WHERE order_id = o.order_id),
                         1
-                    ) as quantity
+                    ) as quantity,
+                    COALESCE(
+                        (SELECT COUNT(*) FROM order_items WHERE order_id = o.order_id),
+                        1
+                    ) as item_count,
+                    COALESCE(o.traffic_multiplier, 1.0) as traffic_multiplier,
+                    o.weather_condition,
+                    COALESCE(o.is_peak_hour, 0) as is_peak_hour
                 FROM orders o
                 LEFT JOIN stores s ON o.store_id = s.store_id
                 WHERE o.delivered_at IS NULL
@@ -157,7 +167,15 @@ class BatchPredictor:
             delivery_lon=order_row["delivery_longitude"],
             placed_at=placed_at,
             order_total_cents=order_row["total"],
-            item_count=order_row["quantity"],
+            item_count=order_row.get("item_count", order_row["quantity"]),
+            order_id=order_row["order_id"],
+            subtotal=order_row.get("subtotal", 0.0),
+            delivery_fee=order_row.get("delivery_fee", 0.0),
+            tip=order_row.get("tip", 0.0),
+            quantity=order_row["quantity"],
+            traffic_multiplier=order_row.get("traffic_multiplier", 1.0),
+            weather_condition=order_row.get("weather_condition"),
+            is_peak_hour=bool(order_row.get("is_peak_hour", False)),
         )
         
         # Make prediction
